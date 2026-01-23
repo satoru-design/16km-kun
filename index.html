@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>半径16kmマップ (Google Maps版)</title>
+    
+    <!-- Tailwind CSS (デザイン用) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Font Awesome (アイコン用) -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <style>
+        /* 地図の高さを画面いっぱいに */
+        #map {
+            height: 100vh;
+            width: 100%;
+        }
+        /* コントロールパネルを地図の上に浮かせ、スクロール可能に */
+        .control-panel {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            z-index: 1000;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+        /* 入力ボックスのアニメーション */
+        .input-group {
+            transition: all 0.3s ease;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 overflow-hidden">
+
+    <!-- 地図コンテナ -->
+    <div id="map"></div>
+
+    <!-- コントロールパネル -->
+    <div class="control-panel w-96 bg-gray-50/90 backdrop-blur-sm p-6 rounded-xl shadow-2xl border border-gray-200">
+        <h2 class="text-xl font-bold text-gray-700 mb-4 border-b pb-2">
+            <i class="fa-solid fa-map-location-dot mr-2"></i>地点設定
+        </h2>
+        
+        <div id="address-container" class="space-y-3 mb-6">
+            <!-- JavaScriptでここにフォームが追加されます -->
+        </div>
+
+        <button id="draw-btn" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded-lg shadow-md transition duration-200 flex items-center justify-center gap-2">
+            <i class="fa-solid fa-circle-nodes"></i>
+            円を表示させる
+        </button>
+
+        <p id="status-msg" class="text-sm text-center mt-3 text-gray-500 font-medium"></p>
+        <p class="text-xs text-center mt-2 text-gray-400">Powered by Google Maps</p>
+    </div>
+
+    <!-- Google Maps API Loader -->
+    <script>
+        (g=>{var h,a,k,p="The Google Maps JavaScript API",c="google",l="importLibrary",q="__ib__",m=document,b=window;b=b[c]||(b[c]={});var d=b.maps||(b.maps={}),r=new Set,e=new URLSearchParams,u=()=>h||(h=new Promise(async(f,n)=>{await(a=m.createElement("script"));e.set("libraries",[...r]+"");for(k in g)e.set(k.replace(/[A-Z]/g,t=>"_"+t[0].toLowerCase()),g[k]);e.set("callback",c+".maps."+q);a.src=`https://maps.${c}apis.com/maps/api/js?`+e;d[q]=f;a.onerror=()=>h=n(Error(p+" could not load."));a.nonce=m.querySelector("script[nonce]")?.nonce||"";m.head.append(a)}));d[l]?console.warn(p+" only loads once. Ignoring:",g):d[l]=(f,...n)=>r.add(f)&&u().then(()=>d[l](f,...n))})({
+          key: "AIzaSyARHsd9XY0l_Lw13W4g5KKj1xJDCMNwVPQ", // APIキー
+          v: "weekly",
+        });
+    </script>
+
+    <script>
+        // --- 設定 ---
+        const RADIUS_KM = 16;
+        const RADIUS_METERS = RADIUS_KM * 1000;
+        
+        // デフォルトの住所リスト
+        const defaultAddresses = [
+            "横浜市神奈川区鶴屋町２丁目21−１",
+            "千代田区神田3-17-10"
+        ];
+
+        let map;
+        let geocoder;
+        let mapObjects = []; // マーカーと円を管理
+
+        // --- DOM要素 ---
+        const container = document.getElementById('address-container');
+        const drawBtn = document.getElementById('draw-btn');
+        const statusMsg = document.getElementById('status-msg');
+
+        // --- 地図の初期化 ---
+        async function initMap() {
+            try {
+                const { Map } = await google.maps.importLibrary("maps");
+                const { Geocoder } = await google.maps.importLibrary("geocoding");
+
+                // 東京付近を中心に設定
+                map = new Map(document.getElementById("map"), {
+                    center: { lat: 35.681236, lng: 139.767125 },
+                    zoom: 10,
+                    mapId: "DEMO_MAP_ID", // 必要に応じて設定
+                    disableDefaultUI: false, // UIコントロールを表示
+                    streetViewControl: false,
+                    mapTypeControl: false
+                });
+
+                geocoder = new Geocoder();
+            } catch (error) {
+                console.error("Google Maps initialization error:", error);
+                statusMsg.textContent = "地図の読み込みに失敗しました。APIキー設定を確認してください。";
+                statusMsg.className = "text-center mt-3 text-red-500 font-bold";
+            }
+        }
+
+        // Google Maps APIのロードを開始
+        initMap();
+
+        // --- UI関数: 入力フィールドの追加 ---
+        function addInputGroup(value = "", isLast = false, index, totalCount) {
+            const div = document.createElement('div');
+            div.className = "input-group flex items-center gap-2";
+            
+            // 番号 (緑色)
+            const numberSpan = document.createElement('span');
+            numberSpan.className = "text-green-600 font-bold text-lg w-6 flex-shrink-0 text-center";
+            numberSpan.textContent = index + 1;
+
+            // 入力ボックス (背景白)
+            const input = document.createElement('input');
+            input.type = "text";
+            input.className = "flex-1 bg-white border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block p-2.5 shadow-sm";
+            input.placeholder = "住所を入力";
+            input.value = value;
+
+            div.appendChild(numberSpan);
+            div.appendChild(input);
+
+            // アクションボタンコンテナ (ボタンの配置を整える)
+            const actionContainer = document.createElement('div');
+            actionContainer.className = "flex items-center justify-end gap-1 min-w-[70px]";
+
+            // ゴミ箱ボタン (リストが1つより多い場合のみ表示)
+            if (totalCount > 1) {
+                const deleteBtn = document.createElement('button');
+                deleteBtn.className = "text-gray-400 hover:text-red-500 p-2 rounded-full transition flex items-center justify-center w-8 h-8";
+                deleteBtn.innerHTML = '<i class="fa-solid fa-trash"></i>';
+                deleteBtn.title = "この行を削除";
+                deleteBtn.onclick = () => {
+                    removeField(index);
+                };
+                actionContainer.appendChild(deleteBtn);
+            } else {
+                const dummy = document.createElement('div');
+                dummy.className = "w-8 h-8";
+                actionContainer.appendChild(dummy);
+            }
+
+            // 「+」ボタン (最後の要素のみ)
+            if (isLast) {
+                const plusBtn = document.createElement('button');
+                plusBtn.className = "text-blue-500 hover:text-blue-700 bg-blue-100 hover:bg-blue-200 rounded-full w-8 h-8 flex items-center justify-center transition flex-shrink-0";
+                plusBtn.innerHTML = '<i class="fa-solid fa-plus"></i>';
+                plusBtn.title = "新しい行を追加";
+                plusBtn.onclick = () => {
+                    addNewField();
+                };
+                actionContainer.appendChild(plusBtn);
+            } else {
+                const dummy = document.createElement('div');
+                dummy.className = "w-8 h-8";
+                actionContainer.appendChild(dummy);
+            }
+
+            div.appendChild(actionContainer);
+            container.appendChild(div);
+        }
+
+        // --- 画面描画の更新 ---
+        function renderInputs(addresses) {
+            container.innerHTML = '';
+            addresses.forEach((val, idx) => {
+                const isLast = idx === addresses.length - 1;
+                addInputGroup(val, isLast, idx, addresses.length);
+            });
+        }
+
+        // --- 新しいフィールドを追加する処理 ---
+        function addNewField() {
+            const currentInputs = Array.from(container.querySelectorAll('input')).map(input => input.value);
+            currentInputs.push("");
+            renderInputs(currentInputs);
+        }
+
+        // --- フィールドを削除する処理 ---
+        function removeField(index) {
+            const currentInputs = Array.from(container.querySelectorAll('input')).map(input => input.value);
+            if (currentInputs.length > 1) {
+                currentInputs.splice(index, 1); // 指定インデックスを削除
+                renderInputs(currentInputs);    // 再描画
+            }
+        }
+
+        // --- 住所検索と描画 ---
+        drawBtn.addEventListener('click', async () => {
+            if (!geocoder) {
+                statusMsg.textContent = "Google Mapsの読み込み待機中...";
+                return;
+            }
+
+            const inputs = container.querySelectorAll('input');
+            const addresses = Array.from(inputs).map(input => input.value).filter(val => val.trim() !== "");
+
+            if (addresses.length === 0) {
+                statusMsg.textContent = "住所を入力してください。";
+                statusMsg.className = "text-center mt-3 text-red-500 font-bold";
+                return;
+            }
+
+            // UIの状態変更
+            drawBtn.disabled = true;
+            drawBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 検索中...';
+            statusMsg.textContent = "地図情報を取得しています...";
+            statusMsg.className = "text-center mt-3 text-gray-500";
+
+            // 既存のオブジェクトを削除
+            mapObjects.forEach(obj => obj.setMap(null));
+            mapObjects = [];
+
+            const bounds = new google.maps.LatLngBounds();
+            let successCount = 0;
+            let errorMessages = [];
+
+            // 各住所を処理
+            for (const addr of addresses) {
+                try {
+                    const result = await new Promise((resolve, reject) => {
+                        geocoder.geocode({ address: addr }, (results, status) => {
+                            if (status === "OK") {
+                                resolve(results[0]);
+                            } else {
+                                console.warn(`Geocode failed for ${addr}: ${status}`);
+                                resolve(null);
+                            }
+                        });
+                    });
+
+                    if (result) {
+                        const location = result.geometry.location;
+
+                        // マーカー追加
+                        const marker = new google.maps.Marker({
+                            map: map,
+                            position: location,
+                            title: addr
+                        });
+                        mapObjects.push(marker);
+
+                        // 情報ウィンドウ
+                        const infoWindow = new google.maps.InfoWindow({
+                            content: `<div style="color:black; padding:5px;"><b>${addr}</b><br>半径${RADIUS_KM}km</div>`
+                        });
+                        marker.addListener("click", () => {
+                            infoWindow.open(map, marker);
+                        });
+
+                        // 円を追加
+                        const circle = new google.maps.Circle({
+                            strokeColor: "#0000FF",
+                            strokeOpacity: 0.8,
+                            strokeWeight: 2,
+                            fillColor: "#0000FF",
+                            fillOpacity: 0.15,
+                            map: map,
+                            center: location,
+                            radius: RADIUS_METERS
+                        });
+                        mapObjects.push(circle);
+
+                        bounds.union(circle.getBounds());
+                        successCount++;
+                    } else {
+                        errorMessages.push(`「${addr}」が見つかりませんでした`);
+                    }
+                } catch (e) {
+                    console.error(e);
+                    errorMessages.push(`エラー: ${addr}`);
+                }
+            }
+
+            // 完了後の処理
+            drawBtn.disabled = false;
+            drawBtn.innerHTML = '<i class="fa-solid fa-circle-nodes"></i> 円を表示させる';
+
+            if (successCount > 0) {
+                map.fitBounds(bounds);
+                
+                if (errorMessages.length > 0) {
+                    statusMsg.textContent = `${successCount}箇所表示しました。(${errorMessages.length}件エラーあり)`;
+                    statusMsg.className = "text-center mt-3 text-orange-600 font-bold";
+                    console.log("Errors:", errorMessages);
+                } else {
+                    statusMsg.textContent = `${successCount}箇所の円を表示しました。`;
+                    statusMsg.className = "text-center mt-3 text-green-600 font-bold";
+                }
+            } else {
+                statusMsg.textContent = "住所が見つかりませんでした。入力内容やAPIキーを確認してください。";
+                statusMsg.className = "text-center mt-3 text-red-500 font-bold";
+            }
+        });
+
+        // --- 初期化実行 ---
+        renderInputs(defaultAddresses);
+
+    </script>
+</body>
+</html>
