@@ -252,8 +252,20 @@
                         mapObjects.push(marker);
 
                         // 情報ウィンドウ
+                        // content に文字列を渡すと HTML として解釈されるため、
+                        // DOM要素を組んで textContent で入れる
+                        const infoContent = document.createElement('div');
+                        infoContent.style.color = "black";
+                        infoContent.style.padding = "5px";
+
+                        const addrEl = document.createElement('b');
+                        addrEl.textContent = addr;
+                        infoContent.appendChild(addrEl);
+                        infoContent.appendChild(document.createElement('br'));
+                        infoContent.appendChild(document.createTextNode(`半径${RADIUS_KM}km`));
+
                         const infoWindow = new google.maps.InfoWindow({
-                            content: `<div style="color:black; padding:5px;"><b>${addr}</b><br>半径${RADIUS_KM}km</div>`
+                            content: infoContent
                         });
                         marker.addListener("click", () => {
                             infoWindow.open(map, marker);
